@@ -183,5 +183,5 @@ docker exec virtualhere ps aux
 ## 支持
 
 - 📖 [VirtualHere 文档](https://virtualhere.com/usb_server_software)
-- 🐛 [报告问题](https://github.com/jsntwdj/virtualhere-docker/issues)
-- 💬 [讨论区](https://github.com/jsntwdj/virtualhere-docker/discussions)
+- 🐛 [报告问题](https://github.com/jsntwdj/virtualhere-server/issues)
+- 💬 [讨论区](https://github.com/jsntwdj/virtualhere-server/discussions)
