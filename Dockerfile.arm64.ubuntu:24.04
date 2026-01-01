@@ -1,0 +1,50 @@
+
+# Dockerfile的标题，说明这是为ARM64/aarch64架构构建的VirtualHere USB服务器镜像
+FROM ubuntu:24.04
+# 基础镜像指令：使用Ubuntu 24.04作为基础镜像
+# Docker将从这个镜像开始构建，继承其文件系统和配置
+
+
+# 设置工作目录
+WORKDIR /app
+# 设置容器内的工作目录为/app
+# 所有后续的RUN、CMD、ENTRYPOINT、COPY和ADD指令都将在该目录下执行
+
+
+# 安装必要的包
+RUN apt-get update && \
+    # 更新包列表，获取最新的包信息
+    apt-get install -y wget usbutils && \
+    # 安装wget（用于下载文件）和usbutils（包含lsusb等USB工具）
+    # -y参数自动确认安装
+    apt-get clean && \
+    # 清理apt缓存，减少镜像大小
+    rm -rf /var/lib/apt/lists/*
+    # 删除apt包列表文件，进一步减小镜像大小
+
+# 创建数据目录和配置目录
+RUN mkdir -p /data
+
+# 构建期间文件复制
+COPY vhusbdarm64 /app/virtualhere
+COPY config.ini /data/
+COPY start-virtualhere.sh /app/
+# 设置可执行权限
+RUN chmod +x /app/virtualhere /app/start-virtualhere.sh
+
+
+# 设置数据卷
+VOLUME ["/data"]
+# 声明一个名为/data的卷（数据挂载点）
+# 这确保数据持久化，并在容器停止时不会丢失配置
+
+# 暴露VirtualHere默认端口
+EXPOSE 7575
+# 声明容器将在7575端口上监听
+# 这只是文档和运行时提示，实际端口映射在运行容器时通过-p参数指定
+
+# 运行启动脚本
+CMD ["/app/start-virtualhere.sh"]
+# 容器启动时执行的默认命令
+# 使用exec格式（JSON数组格式），避免shell解释
+# 这会运行之前复制的启动脚本

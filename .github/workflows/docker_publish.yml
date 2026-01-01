@@ -1,69 +1,73 @@
+# 工作流名称
 name: Build and Push Docker Images
 
+# 触发条件定义
 on:
+  # 当有推送标签时触发
   push:
     tags:
-      - "*"
+      - "*"  # 匹配所有标签
 
+  # 允许手动触发工作流
   workflow_dispatch:
 
+# 设置工作流所需的权限
 permissions:
-  contents: write
-  packages: write
+  contents: write  # 写入仓库内容的权限
+  packages: write  # 写入包的权限（用于 GitHub Packages）
 
+# 环境变量定义
 env:
-  DOCKER_HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  REGISTRY_IMAGE: virtualhere-server
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}  # Docker Hub 用户名（从密钥获取）
+  REGISTRY_IMAGE: virtualhere-server  # Docker 镜像名称
 
+# 作业定义
 jobs:
+  # 构建作业
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # 在最新版 Ubuntu 上运行
     strategy:
-      fail-fast: false
+      fail-fast: false  # 一个矩阵任务失败时不停止其他任务
       matrix:
         include:
-          - platform: linux/amd64
-            dockerfile: Dockerfile
-            suffix: amd64
-          - platform: linux/arm64
+          - platform: linux/amd64  # AMD64 架构
+            dockerfile: Dockerfile  # 对应的 Dockerfile
+            suffix: amd64  # 镜像标签后缀
+          - platform: linux/arm64  # ARM64 架构
             dockerfile: Dockerfile.arm64
             suffix: arm64
-          - platform: linux/arm/v7
+          - platform: linux/arm/v7  # ARMv7 架构
             dockerfile: Dockerfile.arm
             suffix: arm
 
     steps:
+      # 检出代码
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 设置 QEMU 用于跨架构构建
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      # 设置 Docker Buildx（多平台构建工具）
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # 登录 Docker Hub
       - name: Login to Docker Hub
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'  # 非 PR 事件时才执行
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}  # Docker Hub 用户名
+          password: ${{ secrets.DOCKERHUB_TOKEN }}  # Docker Hub 访问令牌
 
-      - name: Login to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+      # 提取元数据用于生成标签
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}
           tags: |
             type=raw,value=latest-${{ matrix.suffix }},enable={{is_default_branch}}
             type=semver,pattern={{version}}-${{ matrix.suffix }}
@@ -73,87 +77,83 @@ jobs:
             type=ref,event=pr,suffix=-${{ matrix.suffix }}
             type=schedule,pattern=weekly-{{date 'YYYYMMDD'}}-${{ matrix.suffix }}
 
+      # 构建并推送 Docker 镜像
       - name: Build and push
         id: build-push
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./${{ matrix.dockerfile }}
-          platforms: ${{ matrix.platform }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.suffix }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+          context: .  # Docker 构建上下文
+          file: ./${{ matrix.dockerfile }}  # 使用对应架构的 Dockerfile
+          platforms: ${{ matrix.platform }}  # 目标平台
+          push: ${{ github.event_name != 'pull_request' }}  # 非 PR 时推送
+          tags: ${{ steps.meta.outputs.tags }}  # 使用元数据生成的标签
+          labels: ${{ steps.meta.outputs.labels }}  # 使用元数据生成的标签
+          cache-from: type=gha,scope=${{ matrix.suffix }}  # 从 GitHub Actions 缓存读取
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}  # 写入 GitHub Actions 缓存
 
+      # 导出镜像摘要（digest）
       - name: Export digest
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'  # 非 PR 时才执行
         run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build-push.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          mkdir -p /tmp/digests  # 创建临时目录
+          digest="${{ steps.build-push.outputs.digest }}"  # 获取镜像摘要
+          touch "/tmp/digests/${digest#sha256:}"  # 创建以摘要命名的文件
 
+      # 上传摘要文件作为工件
       - name: Upload digest
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.suffix }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
+          name: digests-${{ matrix.suffix }}  # 工件名称
+          path: /tmp/digests/*  # 上传的路径
+          if-no-files-found: error  # 没找到文件时报错
+          retention-days: 1  # 保留1天
 
+  # 合并作业：创建多架构镜像清单
   merge:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'  # 非 PR 时才执行
     needs:
-      - build
+      - build  # 依赖构建作业
     steps:
+      # 下载所有架构的摘要文件
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/digests
-          pattern: digests-*
-          merge-multiple: true
+          path: /tmp/digests  # 下载路径
+          pattern: digests-*  # 匹配所有摘要文件
+          merge-multiple: true  # 合并多个工件
 
+      # 设置 Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # 登录 Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+      # 为主分支创建多架构 latest 标签
       - name: Create multi-arch manifest for latest
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'  # 只在主分支推送时执行
         run: |
-          # Docker Hub
+          # Docker Hub: 为 latest 标签创建多架构清单
           docker buildx imagetools create -t ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:latest \
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:latest-amd64 \
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:latest-arm64 \
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:latest-arm
 
-          # GitHub Container Registry
-          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:latest \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:latest-amd64 \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:latest-arm64 \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:latest-arm
-
+      # 为标签发布创建多架构清单
       - name: Create multi-arch manifest for release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/')  # 标签推送时执行
         run: |
-          # Extract version from tag (remove 'v' prefix if present)
+          # 从标签中提取版本号（移除 'v' 前缀）
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}
 
-          # Docker Hub - Create version-specific tags
+          # Docker Hub: 创建版本特定的标签
           docker buildx imagetools create \
             -t ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${VERSION} \
             -t ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:latest \
@@ -161,58 +161,57 @@ jobs:
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${VERSION}-arm64 \
             ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${VERSION}-arm
 
-          # GitHub Container Registry - Create version-specific tags
-          docker buildx imagetools create \
-            -t ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:${VERSION} \
-            -t ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:latest \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:${VERSION}-amd64 \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:${VERSION}-arm64 \
-            ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:${VERSION}-arm
-
+      # 检查多架构镜像
       - name: Inspect multi-arch images
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
+          # 主分支：检查 latest 标签
           if [ "${{ github.ref }}" == "refs/heads/main" ]; then
             docker buildx imagetools inspect ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:latest
-            docker buildx imagetools inspect ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:latest
           fi
 
+          # 标签发布：检查版本标签
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
             VERSION=${VERSION#v}
             docker buildx imagetools inspect ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${VERSION}
-            docker buildx imagetools inspect ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:${VERSION}
           fi
 
+  # 安全扫描作业
   security-scan:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     needs:
-      - merge
+      - merge  # 依赖合并作业
     strategy:
       matrix:
-        arch: [amd64, arm64, arm]
+        arch: [amd64, arm64, arm]  # 为每个架构运行扫描
     steps:
+      # 确定要扫描的镜像标签
       - name: Determine image tag
         id: tag
         run: |
+          # 主分支：扫描 latest-<arch>
           if [ "${{ github.ref }}" == "refs/heads/main" ]; then
             echo "tag=latest-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           else
+            # 标签发布：扫描 <version>-<arch>
             VERSION=${GITHUB_REF#refs/tags/}
             VERSION=${VERSION#v}
             echo "tag=${VERSION}-${{ matrix.arch }}" >> $GITHUB_OUTPUT
           fi
 
+      # 使用 Trivy 进行漏洞扫描
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "ghcr.io/${{ github.repository_owner }}/${{ env.REGISTRY_IMAGE }}:${{ steps.tag.outputs.tag }}"
-          format: "sarif"
-          output: "trivy-results-${{ matrix.arch }}.sarif"
+          image-ref: "${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${{ steps.tag.outputs.tag }}"
+          format: "sarif"  # SARIF 格式输出
+          output: "trivy-results-${{ matrix.arch }}.sarif"  # 输出文件名
 
+      # 上传扫描结果到 GitHub Security 标签页
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always()  # 总是执行，即使扫描失败
         with:
-          sarif_file: "trivy-results-${{ matrix.arch }}.sarif"
+          sarif_file: "trivy-results-${{ matrix.arch }}.sarif"  # SARIF 文件
