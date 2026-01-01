@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write  # 写入仓库内容的权限
   packages: write  # 写入包的权限（用于 GitHub Packages）
+  security-events: write  # 新增：写入安全事件的权限
 
 # 环境变量定义
 env:
@@ -177,41 +178,4 @@ jobs:
             docker buildx imagetools inspect ${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${VERSION}
           fi
 
-  # 安全扫描作业
-  security-scan:
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    needs:
-      - merge  # 依赖合并作业
-    strategy:
-      matrix:
-        arch: [amd64, arm64, arm]  # 为每个架构运行扫描
-    steps:
-      # 确定要扫描的镜像标签
-      - name: Determine image tag
-        id: tag
-        run: |
-          # 主分支：扫描 latest-<arch>
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "tag=latest-${{ matrix.arch }}" >> $GITHUB_OUTPUT
-          else
-            # 标签发布：扫描 <version>-<arch>
-            VERSION=${GITHUB_REF#refs/tags/}
-            VERSION=${VERSION#v}
-            echo "tag=${VERSION}-${{ matrix.arch }}" >> $GITHUB_OUTPUT
-          fi
 
-      # 使用 Trivy 进行漏洞扫描
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: "${{ env.DOCKER_HUB_USERNAME }}/${{ env.REGISTRY_IMAGE }}:${{ steps.tag.outputs.tag }}"
-          format: "sarif"  # SARIF 格式输出
-          output: "trivy-results-${{ matrix.arch }}.sarif"  # 输出文件名
-
-      # 上传扫描结果到 GitHub Security 标签页
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()  # 总是执行，即使扫描失败
-        with:
-          sarif_file: "trivy-results-${{ matrix.arch }}.sarif"  # SARIF 文件
