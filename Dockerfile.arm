@@ -1,4 +1,4 @@
-# VirtualHere USB服务器镜像 - 为ARM64/aarch64架构构建
+# VirtualHere USB服务器镜像 - 为arm/v7架构构建
 # 使用Alpine Linux作为基础镜像，提供最小化的容器环境
 FROM alpine:3.20
 
