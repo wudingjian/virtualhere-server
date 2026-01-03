@@ -22,8 +22,14 @@ RUN apk update && \
     # bash: 提供Bash shell环境
     acl \
     # acl: 访问控制列表工具，用于管理文件权限
+    tzdata \
+    # tzdata: 时区数据包，用于支持TZ环境变量
     && rm -rf /var/cache/apk/*
     # 清理apk缓存，进一步减小镜像大小
+
+# 设置默认时区为Asia/Shanghai
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone
 
 # 创建数据目录，用于存储配置和持久化数据
 RUN mkdir -p /data
@@ -37,6 +43,9 @@ COPY start-virtualhere.sh /app/
 
 # 设置文件可执行权限
 RUN chmod +x /app/virtualhere /app/start-virtualhere.sh
+
+# 设置默认时区环境变量（可以在运行时通过TZ环境变量覆盖）
+ENV TZ=Asia/Shanghai
 
 # 声明数据卷
 # /data目录将用于持久化配置和数据
