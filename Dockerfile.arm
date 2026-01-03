@@ -27,9 +27,6 @@ RUN apk update && \
     && rm -rf /var/cache/apk/*
     # 清理apk缓存，进一步减小镜像大小
 
-# 设置默认时区为Asia/Shanghai
-RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    echo "Asia/Shanghai" > /etc/timezone
 
 # 创建数据目录，用于存储配置和持久化数据
 RUN mkdir -p /data
@@ -46,6 +43,8 @@ RUN chmod +x /app/virtualhere /app/start-virtualhere.sh
 
 # 设置默认时区环境变量（可以在运行时通过TZ环境变量覆盖）
 ENV TZ=Asia/Shanghai
+# 创建/etc/localtime软链接
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 声明数据卷
 # /data目录将用于持久化配置和数据
