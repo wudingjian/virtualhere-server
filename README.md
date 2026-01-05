@@ -17,8 +17,8 @@
 ### 多架构镜像
 
 根据您的系统选择适当的镜像：
-
-```docker-compose
+docker-compose
+```
 services:
   virtualhere:
     image: virtualhere-server:latest
@@ -31,6 +31,18 @@ services:
     restart: unless-stopped
     network_mode: "host"
 ```
+docker run
+```
+docker run -d \
+  --name virtualhere \
+  --restart unless-stopped \
+  --network host \
+  --privileged \
+  -v /dev/bus/usb:/dev/bus/usb \
+  -v $(pwd)/data:/data \
+  virtualhere-server:latest
+```
+
 
 ### Docker Hub 和 GitHub Container Registry
 
